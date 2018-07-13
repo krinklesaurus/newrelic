@@ -1,6 +1,7 @@
 package newrelic
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
@@ -12,17 +13,76 @@ import (
 )
 
 func (c *Client) doGet(path string, params fmt.Stringer, out interface{}) error {
-	var s string
+	callPath := c.url.String() + path
 	if params != nil {
-		s = params.String()
+		s := params.String()
+		if s != "" {
+			callPath += fmt.Sprintf("?%s", s)
+		}
 	}
-	r := strings.NewReader(s)
-	req, err := http.NewRequest("GET", c.url.String()+path, r)
+
+	req, err := http.NewRequest("GET", callPath, nil)
 	if err != nil {
 		return err
 	}
 	req.Header.Add("X-Api-Key", c.apiKey)
-	req.Header.Add("Content-Type", "application/x-www-form-urlencoded")
+	req.Header.Add("Content-Type", "application/json")
+	return c.doRequest(req, out)
+}
+
+func (c *Client) doPost(path string, params fmt.Stringer, body interface{}, out interface{}) error {
+	callPath := c.url.String() + path
+	if params != nil {
+		s := params.String()
+		if s != "" {
+			callPath += fmt.Sprintf("?%s", s)
+		}
+	}
+
+	var asJson []byte
+	if body != nil {
+		tmp, err := json.Marshal(body)
+		if err != nil {
+			return err
+		}
+		asJson = tmp
+	}
+	r := bytes.NewBuffer(asJson)
+	req, err := http.NewRequest("POST", callPath, r)
+	if err != nil {
+		return err
+	}
+	req.Header.Add("X-Api-Key", c.apiKey)
+	req.Header.Add("Content-Type", "application/json")
+	return c.doRequest(req, out)
+}
+
+func (c *Client) doUpdate(path string, params interface{}, out interface{}) error {
+	var asJson []byte
+	if params != nil {
+		tmp, err := json.Marshal(params)
+		if err != nil {
+			return err
+		}
+		asJson = tmp
+	}
+	r := bytes.NewBuffer(asJson)
+	req, err := http.NewRequest("PUT", c.url.String()+path, r)
+	if err != nil {
+		return err
+	}
+	req.Header.Add("X-Api-Key", c.apiKey)
+	req.Header.Add("Content-Type", "application/json")
+	return c.doRequest(req, out)
+}
+
+func (c *Client) doDelete(path string, out interface{}) error {
+	req, err := http.NewRequest("DELETE", c.url.String()+path, nil)
+	if err != nil {
+		return err
+	}
+	req.Header.Add("X-Api-Key", c.apiKey)
+	req.Header.Add("Content-Type", "application/json")
 	return c.doRequest(req, out)
 }
 
@@ -36,7 +96,7 @@ func (c *Client) doRequest(req *http.Request, out interface{}) error {
 	if err != nil {
 		return err
 	}
-	if resp.StatusCode != 200 {
+	if resp.StatusCode < 200 || resp.StatusCode >= 400 {
 		return fmt.Errorf("newrelic http error (%s): %s", resp.Status, b)
 	}
 	if len(b) == 0 {
